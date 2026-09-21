@@ -294,3 +294,9 @@ field has two producers, that durations and tiers agree, and that the canonical 
 nothing beyond the two roots and raises no advisories. `workflow/workflow_test.go` additionally
 asserts the `Activities` struct still registers cleanly on a worker — an exported method that is not a
 valid activity signature would otherwise break the worker at startup.
+
+## License
+
+[MIT](LICENSE). The software is provided "as is", without warranty of any kind — you use this code
+at your own risk, and the author is not liable for any claim, damages, or other liability arising
+from it. It is a demonstration built on synthetic data, not a production banking system.
