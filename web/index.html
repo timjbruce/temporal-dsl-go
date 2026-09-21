@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banking Position — DSL Runner</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --ink: #1c2024; --muted: #6b7280;
+    --line: #dfe3e8; --accent: #2f6feb; --warn: #b4530a; --bad: #b42318; --good: #17803d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--ink); }
+  header { padding: 20px 24px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  h1 { margin: 0; font-size: 17px; }
+  header p { margin: 4px 0 0; color: var(--muted); max-width: 76ch; }
+  main { display: grid; grid-template-columns: 420px 1fr; gap: 20px; padding: 20px 24px; align-items: start; }
+  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+  h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  ol.steps { list-style: none; margin: 0; padding: 0; }
+  ol.steps li { display: flex; align-items: center; gap: 7px; padding: 7px 8px;
+                border: 1px solid transparent; border-radius: 6px; }
+  ol.steps li.on { background: #eef4ff; border-color: #cfdefb; }
+  ol.steps li.running { background: #fff6ed; border-color: #f0c9a0; }
+  ol.steps .name { flex: 1; font-weight: 500; }
+  ol.steps .idx { width: 18px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  button { font: inherit; border: 1px solid var(--line); background: #fff; border-radius: 6px;
+           padding: 5px 9px; cursor: pointer; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 8px 14px; }
+  button.primary:hover { opacity: .9; color: #fff; }
+  button.on { background: #eef4ff; border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .tier { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px;
+          border-radius: 999px; white-space: nowrap; }
+  .tier.long { background: #fdeceb; color: var(--bad); }
+  .tier.moderate { background: #fff4e6; color: var(--warn); }
+  .tier.fast { background: #eafaf0; color: var(--good); }
+  .dur { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .warnmark { color: var(--warn); cursor: help; font-size: 13px; }
+  .est { margin-top: 10px; color: var(--muted); font-size: 12px; }
+  .est b { color: var(--ink); }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-weight: 500; margin-bottom: 3px; }
+  .field .hint { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .field input { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+  .field.bad input { border-color: var(--bad); }
+  .field .err { color: var(--bad); font-size: 12px; margin-top: 3px; }
+  .field .alts { display: flex; gap: 6px; margin-bottom: 5px; flex-wrap: wrap; }
+  .field .alts button { font-size: 12px; padding: 3px 8px; }
+  .field .alts button.on { background: #eef4ff; border-color: var(--accent); color: var(--accent); }
+  .note { padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; }
+  .note.bad { background: #fef3f2; color: var(--bad); }
+  .note.good { background: #edfbf1; color: var(--good); }
+  .note.warn { background: #fff6ed; color: var(--warn); }
+  .note.flat { background: #f2f4f7; }
+  .adv { padding: 8px 12px; border-left: 3px solid var(--warn); background: #fffaf4;
+         margin-bottom: 8px; font-size: 13px; }
+  .adv .mode { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+               color: var(--warn); font-weight: 600; margin-right: 6px; }
+  .adv.empty { border-left-color: var(--bad); background: #fef3f2; }
+  .adv.empty .mode { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  .prov { color: var(--muted); font-size: 12px; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); }
+  .pos { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  .pos .n { font-size: 34px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
+  .pos .n.neg { color: var(--bad); }
+  .bar { height: 8px; background: #e9edf2; border-radius: 999px; overflow: hidden; margin: 10px 0 12px; }
+  .bar > div { height: 100%; background: var(--accent); transition: width .4s ease; }
+  .line { display: flex; gap: 8px; padding: 3px 0; align-items: baseline; }
+  .line .k { width: 150px; color: var(--muted); }
+  .line .v { font-variant-numeric: tabular-nums; font-weight: 500; }
+  .line .s { color: var(--muted); font-size: 12px; }
+  tr.changed td { background: #fffaf4; }
+  .ab { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: #eef4ff;
+        color: var(--accent); margin-left: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Banking Position — DSL Runner</h1>
+  <p>Pick an ordering. Steps declare what they <em>require</em> and what they can optionally <em>use</em>.
+     An unmet optional never blocks a run — the step just does less. That is why the same steps with the
+     same data give a different answer depending on order. All data is synthetic.</p>
+</header>
+
+<main>
+  <section>
+    <h2>Steps</h2>
+    <ol class="steps" id="steps"></ol>
+    <div class="actions">
+      <button id="all">Select all</button>
+      <button id="none">Clear</button>
+      <button id="quick" title="Fastest first, subject to prerequisites">Fastest first</button>
+      <button id="slow" title="Slowest first, subject to prerequisites">Slowest first</button>
+    </div>
+    <div class="actions">
+      <button class="primary" id="plan">Get required fields</button>
+      <button id="setA" title="Remember this ordering, then reorder and compare against it">Set as A</button>
+      <button id="cmp" disabled>Compare with A</button>
+    </div>
+    <div class="est" id="abNote"></div>
+  </section>
+
+  <section>
+    <h2>Required data</h2>
+    <div id="planOut"><p class="prov">Select steps and choose “Get required fields”.</p></div>
+  </section>
+</main>
+
+<script>
+let catalog = [], selected = [], runningStep = null, poller = null;
+let degraded = {}, blockedSteps = new Set(), orderA = null, lastData = {};
+
+const el = (t, cls, txt) => { const n = document.createElement(t); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+const def = n => catalog.find(s => s.name === n);
+const avg = n => (def(n).min_seconds + def(n).max_seconds) / 2;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+const money = v => (v < 0 ? '-' : '') + '$' + Math.abs(Number(v)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Listed explicitly: a name-matching heuristic rendered position_confidence,
+// a percentage, as a dollar amount.
+const MONEY = new Set(['deposit_total', 'card_balance', 'loan_balance', 'anchor_balance', 'net_position']);
+const maybeMoney = (field, v) => (MONEY.has(field) && v !== '' && !isNaN(v)) ? money(v) : v;
+
+async function load() {
+  catalog = (await (await fetch('/api/steps')).json()).steps;
+  selected = catalog.map(s => s.name);
+  renderSteps();
+}
+
+function renderSteps() {
+  const list = document.getElementById('steps');
+  list.innerHTML = '';
+
+  const ordered = [...selected, ...catalog.map(s => s.name).filter(n => !selected.includes(n))];
+  ordered.forEach(name => {
+    const d = def(name);
+    const on = selected.includes(name);
+    const pos = selected.indexOf(name);
+
+    const li = el('li', on ? 'on' : '');
+    if (name === runningStep) li.classList.add('running');
+    li.title = d.description;
+
+    const box = el('input');
+    box.type = 'checkbox';
+    box.checked = on;
+    box.onchange = () => {
+      selected = on ? selected.filter(n => n !== name) : [...selected, name];
+      degraded = {}; blockedSteps = new Set();
+      renderSteps();
+    };
+
+    li.append(box, el('span', 'idx', on ? String(pos + 1) : '·'), el('span', 'name', name));
+
+    if (degraded[name] && degraded[name].length) {
+      const starved = blockedSteps.has(name);
+      const mark = el('span', 'warnmark', starved ? '✕' : '▲');
+      if (starved) mark.style.color = 'var(--bad)';
+      mark.title = starved
+        ? `${name} will fail here — nothing upstream supplies ${degraded[name].join(', ')}`
+        : `${name} will run degraded here — ${degraded[name].join(', ')} not yet available`;
+      li.append(mark);
+    }
+
+    li.append(el('span', 'tier ' + d.speed_tier, d.speed_tier),
+              el('span', 'dur', `${d.min_seconds}-${d.max_seconds}s`));
+
+    if (on) {
+      const up = el('button', '', '↑'), down = el('button', '', '↓');
+      up.disabled = pos === 0;
+      down.disabled = pos === selected.length - 1;
+      up.onclick = () => swap(pos, pos - 1);
+      down.onclick = () => swap(pos, pos + 1);
+      li.append(up, down);
+    }
+    list.append(li);
+  });
+
+  list.parentElement.querySelectorAll('.est:not(#abNote)').forEach(e => e.remove());
+  if (!selected.length) return;
+
+  const chosen = selected.map(def);
+  const lo = chosen.reduce((a, s) => a + s.min_seconds, 0);
+  const hi = chosen.reduce((a, s) => a + s.max_seconds, 0);
+  const est = el('div', 'est');
+  est.innerHTML = `Estimated run time <b>${lo}-${hi}s</b> across ${chosen.length} step(s).`;
+  list.after(est);
+}
+
+function swap(a, b) {
+  [selected[a], selected[b]] = [selected[b], selected[a]];
+  degraded = {}; blockedSteps = new Set();
+  renderSteps();
+}
+
+// Sorting respects prerequisites, so it never hands back an ordering it knows
+// will fail. A step waits on any selected step that produces something it
+// requires, that could supply its identifier, or — when it needs at least one
+// optional input to say anything — that feeds it at all.
+//
+// DiscoverAccounts stays free to move, since nothing requires its output and no
+// step depends on it for a minimum. Sorting by speed can still push it behind
+// the summaries and narrow their scope, which is the point.
+function constrainedSort(dir) {
+  const chosen = new Set(selected);
+  const producedBy = {};
+  catalog.forEach(s => (s.produces || []).forEach(f => producedBy[f] = s.name));
+
+  const needs = {};
+  selected.forEach(n => {
+    const d = def(n);
+    const edges = [...(d.requires || []), ...(d.requires_one_of || [])];
+    if (d.min_optional > 0) edges.push(...(d.optional || []));
+
+    needs[n] = new Set();
+    edges.forEach(f => {
+      const p = producedBy[f];
+      if (p && p !== n && chosen.has(p)) needs[n].add(p);
+    });
+  });
+
+  const placed = new Set(), out = [];
+  while (out.length < selected.length) {
+    const ready = selected.filter(n => !placed.has(n) && [...needs[n]].every(p => placed.has(p)));
+    if (!ready.length) {
+      selected.forEach(n => { if (!placed.has(n)) { out.push(n); placed.add(n); } });
+      break;
+    }
+    ready.sort((a, b) => dir * (avg(a) - avg(b)));
+    out.push(ready[0]);
+    placed.add(ready[0]);
+  }
+
+  selected = out;
+  degraded = {}; blockedSteps = new Set();
+  renderSteps();
+}
+
+async function fetchPlan(steps) {
+  const res = await fetch('/api/plan', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ steps })
+  });
+  return { ok: res.ok, plan: await res.json() };
+}
+
+async function getPlan() {
+  const out = document.getElementById('planOut');
+  if (!selected.length) { out.innerHTML = '<div class="note bad">Select at least one step.</div>'; return; }
+
+  const { plan } = await fetchPlan(selected);
+  if (plan.errors && plan.errors.length) {
+    out.innerHTML = '<div class="note bad">' + plan.errors.map(esc).join('<br>') + '</div>';
+    return;
+  }
+
+  degraded = {};
+  blockedSteps = new Set((plan.advisories || []).filter(a => a.severity === 'empty').map(a => a.step));
+  (plan.steps || []).forEach(s => { if (s.degraded && s.degraded.length) degraded[s.name] = s.degraded; });
+  renderSteps();
+  renderPlan(plan, out);
+}
+
+function renderPlan(plan, out) {
+  out.innerHTML = '';
+
+  const req = plan.required || [];
+  const head = el('div', 'note ' + (req.length ? 'warn' : 'good'));
+  head.textContent = req.length
+    ? `${req.length} value(s) must be supplied for this ordering.`
+    : 'This ordering needs no input at all.';
+  out.append(head);
+
+  const timing = el('div', 'note flat');
+  timing.innerHTML = `Takes <b>${plan.total.min_seconds}-${plan.total.max_seconds}s</b> in total` +
+    (plan.first_result && plan.first_result.max_seconds
+      ? `, with a first result after <b>${plan.first_result.min_seconds}-${plan.first_result.max_seconds}s</b>.`
+      : '.');
+  out.append(timing);
+
+  const blocked = (plan.advisories || []).filter(a => a.severity === 'empty');
+  if (blocked.length) {
+    const stop = el('div', 'note bad');
+    stop.textContent = `${blocked.map(a => a.step).join(', ')} will fail in this ordering — nothing upstream feeds it.`;
+    out.append(stop);
+  }
+
+  (plan.advisories || []).forEach(a => {
+    const adv = el('div', 'adv' + (a.severity === 'empty' ? ' empty' : ''));
+    adv.innerHTML = `<span class="mode">${esc(a.severity === 'empty' ? 'will fail' : a.mode)}</span>${esc(a.effect)}`;
+    out.append(adv);
+  });
+
+  const form = el('form');
+  form.id = 'dataForm';
+  req.forEach(f => {
+    const alts = f.any_of && f.any_of.length > 1 ? f.any_of : null;
+    const wrap = el('div', 'field');
+    wrap.dataset.field = f.name;
+
+    const label = el('label');
+    label.textContent = alts ? 'Identify the customer by' : f.label;
+    wrap.append(label);
+    wrap.append(el('div', 'hint', `needed by ${f.needed_by.join(', ')}`));
+
+    // These identifiers are interchangeable, so let the caller pick which one
+    // they happen to have.
+    const render = chosen => {
+      wrap.querySelectorAll('.alts, input, .err').forEach(e => e.remove());
+      wrap.classList.remove('bad');
+      wrap.dataset.field = chosen.name;
+
+      if (alts) {
+        const row = el('div', 'alts');
+        alts.forEach(a => {
+          const b = el('button', a.name === chosen.name ? 'on' : '', a.label);
+          b.type = 'button';
+          b.onclick = () => render(a);
+          row.append(b);
+        });
+        wrap.append(row);
+      }
+
+      const input = el('input');
+      input.id = 'f_' + chosen.name;
+      input.name = chosen.name;
+      input.placeholder = chosen.example;
+      input.value = lastData[chosen.name] || '';
+      input.type = chosen.type === 'integer' || chosen.type === 'number' ? 'number'
+                 : chosen.type === 'email' ? 'email'
+                 : chosen.type === 'date' ? 'date' : 'text';
+      if (chosen.type === 'number') input.step = 'any';
+      wrap.append(input);
+    };
+
+    render(alts ? alts[0] : f);
+    form.append(wrap);
+  });
+  out.append(form);
+
+  const run = el('button', 'primary', 'Validate and run');
+  run.onclick = doRun;
+  const actions = el('div', 'actions');
+  actions.append(run);
+  out.append(actions);
+
+  const det = el('details');
+  det.append(el('summary', '', 'Where each step gets its inputs'));
+  const table = el('table');
+  table.innerHTML = '<tr><th>#</th><th>Step</th><th>Needs from you</th><th>From a prior step</th><th>Degraded</th></tr>';
+  (plan.steps || []).forEach(s => {
+    const prov = Object.entries(s.satisfied_by || {}).map(([k, v]) => `${k} ← ${v}`);
+    const enr = Object.entries(s.enriched_by || {}).map(([k, v]) => `${k} ← ${v}`);
+    const row = el('tr');
+    row.innerHTML = `<td>${s.order}</td><td><code>${esc(s.name)}</code></td>` +
+      `<td><code>${(s.needs_input || []).map(esc).join('<br>') || '—'}</code></td>` +
+      `<td class="prov">${[...prov, ...enr].map(esc).join('<br>') || '—'}</td>` +
+      `<td class="prov">${(s.degraded || []).map(esc).join('<br>') || '—'}</td>`;
+    table.append(row);
+  });
+  det.append(table);
+  out.append(det);
+
+  const runOut = el('div');
+  runOut.id = 'runOut';
+  out.append(runOut);
+}
+
+function readForm() {
+  const form = document.getElementById('dataForm');
+  const data = {};
+  new FormData(form).forEach((v, k) => data[k] = String(v));
+
+  form.querySelectorAll('.field').forEach(f => {
+    f.classList.remove('bad');
+    f.querySelector('.err')?.remove();
+  });
+  lastData = { ...lastData, ...data };
+  return { form, data };
+}
+
+function showValidation(form, v, target) {
+  [...(v.missing || []), ...(v.invalid || [])].forEach(f => {
+    const wrap = form.querySelector(`.field[data-field="${f.name}"]`);
+    if (!wrap) return;
+    wrap.classList.add('bad');
+    wrap.append(el('div', 'err', f.reason || 'This value is required.'));
+  });
+  target.innerHTML = `<div class="note bad">${(v.missing || []).length} missing, ${(v.invalid || []).length} invalid — see the highlighted fields.</div>`;
+}
+
+async function doRun(e) {
+  e.preventDefault();
+  const { form, data } = readForm();
+  const runOut = document.getElementById('runOut');
+  runOut.innerHTML = '<p class="prov">Starting…</p>';
+
+  const res = await fetch('/api/run', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ steps: selected, data })
+  });
+  const body = await res.json();
+
+  if (res.status === 422) { showValidation(form, body.validation, runOut); return; }
+  if (!res.ok) { runOut.innerHTML = `<div class="note bad">${esc(body.error || 'Request failed.')}</div>`; return; }
+
+  watch(body.workflow_id, body.run_id, runOut);
+}
+
+// Core banking takes its declared time, so poll the workflow's query handler and
+// let the position build in place rather than blocking on the result.
+function watch(workflowId, runId, runOut) {
+  clearInterval(poller);
+  runOut.innerHTML = '';
+
+  const head = el('div', 'note warn');
+  const pos = el('div', 'pos');
+  const n = el('span', 'n', '—'), conf = el('span', 'prov', '');
+  pos.append(n, conf);
+  const bar = el('div', 'bar');
+  const fill = el('div');
+  bar.append(fill);
+  const lines = el('div');
+  const advs = el('div');
+  runOut.append(head, pos, bar, lines, advs);
+
+  const tick = async () => {
+    let p;
+    try {
+      const res = await fetch(`/api/status?workflow_id=${encodeURIComponent(workflowId)}&run_id=${encodeURIComponent(runId || '')}`);
+      if (!res.ok) return;
+      p = await res.json();
+    } catch { return; }
+
+    const net = p.position.net_position;
+    n.textContent = money(net);
+    n.className = 'n' + (net < 0 ? ' neg' : '');
+    conf.textContent = `confidence ${p.position.confidence}% · elapsed ${(p.elapsed_sec || 0).toFixed(1)}s`;
+    fill.style.width = `${p.position.confidence}%`;
+
+    head.textContent = p.done
+      ? `Workflow ${workflowId} completed — ${p.completed} of ${p.total} steps.`
+      : `Workflow ${workflowId} running — ${p.completed} of ${p.total} steps${p.current ? `, waiting on ${p.current}` : ''}…`;
+    head.className = 'note ' + (p.done ? 'good' : 'warn');
+
+    runningStep = p.done ? null : p.current;
+    renderSteps();
+
+    lines.innerHTML = '';
+    [['Deposits', p.position.deposit_total, 'SummarizeDeposits'],
+     ['Cards', p.position.card_balance, 'SummarizeCredit'],
+     ['Lending', p.position.loan_balance, 'SummarizeLending']].forEach(([k, v, step]) => {
+      if (!v) return;
+      const row = el('div', 'line');
+      row.append(el('span', 'k', k), el('span', 'v', money(v)),
+                 el('span', 's', p.position.scopes[step] || ''));
+      lines.append(row);
+    });
+
+    advs.innerHTML = '';
+    (p.advisories || []).forEach(a => advs.append(el('div', 'adv', a)));
+
+    if (p.done) {
+      clearInterval(poller);
+      poller = null;
+      renderHistory(p, runOut);
+    }
+  };
+
+  tick();
+  poller = setInterval(tick, 1200);
+}
+
+function renderHistory(p, runOut) {
+  const det = el('details');
+  det.append(el('summary', '', `How the position built (${p.history.length} steps)`));
+  const table = el('table');
+  table.innerHTML = '<tr><th>#</th><th>After step</th><th>Elapsed</th><th>Net position</th><th>Confidence</th></tr>';
+  p.history.forEach(h => {
+    const row = el('tr');
+    row.innerHTML = `<td>${h.order}</td><td><code>${esc(h.after_step)}</code></td>` +
+      `<td>${h.elapsed_sec.toFixed(1)}s</td>` +
+      `<td class="num">${h.contributed ? money(h.net_position) : '<span class="prov">—</span>'}</td>` +
+      `<td class="num">${h.confidence}%</td>`;
+    table.append(row);
+  });
+  det.append(table);
+  runOut.append(det);
+}
+
+function setA() {
+  orderA = [...selected];
+  document.getElementById('cmp').disabled = false;
+  document.getElementById('abNote').innerHTML =
+    `Ordering <b>A</b> captured: ${orderA.map(esc).join(' → ')}. Reorder, then compare.`;
+}
+
+async function compare() {
+  const out = document.getElementById('planOut');
+  if (!document.getElementById('dataForm')) { await getPlan(); }
+
+  const { form, data } = readForm();
+  const runOut = document.getElementById('runOut');
+  runOut.innerHTML = '<p class="prov">Running both orderings…</p>';
+
+  const res = await fetch('/api/compare', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ steps_a: orderA, steps_b: selected, data })
+  });
+  const body = await res.json();
+
+  if (res.status === 422) {
+    showValidation(form, (body.a && body.a.validation) || (body.b && body.b.validation) || {}, runOut);
+    return;
+  }
+  if (!res.ok) { runOut.innerHTML = `<div class="note bad">${esc(body.error || 'Comparison failed.')}</div>`; return; }
+
+  renderCompare(body, runOut);
+}
+
+function renderCompare(body, runOut) {
+  runOut.innerHTML = '';
+
+  const head = el('div', 'note ' + (body.diff.length ? 'warn' : 'good'));
+  head.textContent = body.diff.length
+    ? `${body.diff.length} field(s) differ between the two orderings — same steps, same data.`
+    : 'Both orderings produced identical results.';
+  runOut.append(head);
+
+  const orders = el('div', 'prov');
+  orders.innerHTML = `<b>A</b> ${orderA.map(esc).join(' → ')}<br><b>B</b> ${selected.map(esc).join(' → ')}`;
+  orders.style.marginBottom = '12px';
+  runOut.append(orders);
+
+  const table = el('table');
+  table.innerHTML = '<tr><th>Field</th><th>A</th><th>B</th></tr>';
+  body.diff.forEach(d => {
+    const row = el('tr', 'changed');
+    row.innerHTML = `<td>${esc(d.label || d.field)}<br><code class="prov">${esc(d.field)}</code></td>` +
+      `<td class="num">${esc(maybeMoney(d.field, d.a))}</td>` +
+      `<td class="num">${esc(maybeMoney(d.field, d.b))}</td>`;
+    table.append(row);
+  });
+  runOut.append(table);
+}
+
+document.getElementById('quick').onclick = () => constrainedSort(1);
+document.getElementById('slow').onclick = () => constrainedSort(-1);
+document.getElementById('plan').onclick = getPlan;
+document.getElementById('setA').onclick = setA;
+document.getElementById('cmp').onclick = compare;
+document.getElementById('all').onclick = () => { selected = catalog.map(s => s.name); degraded = {}; blockedSteps = new Set(); renderSteps(); };
+document.getElementById('none').onclick = () => { selected = []; degraded = {}; blockedSteps = new Set(); renderSteps(); };
+load();
+</script>
+</body>
+</html>
