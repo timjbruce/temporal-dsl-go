@@ -1,6 +1,7 @@
 package workflow_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -10,6 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
 )
 
@@ -402,8 +406,86 @@ func TestWorkflowValidatesItsOwnRequest(t *testing.T) {
 	}
 }
 
-// Rejection happens before anything is scheduled, so a bad request costs nothing.
-func TestInvalidRequestSchedulesNoActivity(t *testing.T) {
+// Validation is itself an activity: its verdict is recorded in Event History, and
+// the Workflow runs the step definitions it returned rather than re-reading the
+// catalog. Mocking it proves the Workflow takes its answer from there.
+func TestValidationRunsAsAnActivity(t *testing.T) {
+	env := newEnv(t)
+
+	def, ok := dsl.Step("SummarizeDeposits")
+	require.True(t, ok)
+	def.Optional = nil // a definition the live catalog does not hold
+
+	env.OnActivity("ValidateRequest", mock.Anything, mock.Anything).
+		Return(bank.ValidatedRequest{Steps: []dsl.StepDef{def}}, nil).Once()
+
+	env.ExecuteWorkflow(bank.PositionWorkflow, bank.Request{
+		Steps: []string{"SummarizeDeposits"},
+		Data:  map[string]string{"customer_id": "CUST-88213", "as_of_date": "2026-09-30"},
+	})
+
+	result := runResult(t, env)
+	require.Len(t, result.Trace, 1)
+	assert.Empty(t, result.Trace[0].Degraded, "the recorded definition, not the catalog, decides the inputs")
+	env.AssertExpectations(t)
+}
+
+// The running confidence is counted off the recorded inputs too, not whatever
+// BuildPosition declares in the live catalog.
+func TestRunningConfidenceUsesRecordedInputs(t *testing.T) {
+	env := newEnv(t)
+
+	def, ok := dsl.Step("SummarizeDeposits")
+	require.True(t, ok)
+
+	env.OnActivity("ValidateRequest", mock.Anything, mock.Anything).
+		Return(bank.ValidatedRequest{
+			Steps:            []dsl.StepDef{def},
+			ConfidenceInputs: []string{"deposit_total", "never_supplied"},
+		}, nil).Once()
+
+	env.ExecuteWorkflow(bank.PositionWorkflow, bank.Request{
+		Steps: []string{"SummarizeDeposits"},
+		Data:  map[string]string{"customer_id": "CUST-88213", "as_of_date": "2026-09-30"},
+	})
+
+	result := runResult(t, env)
+	assert.Equal(t, 50, result.Progress.Position.Confidence,
+		"one of two recorded inputs present; the live catalog has five")
+}
+
+// A refused request fails the Workflow non-retryably, so a Workflow retry
+// policy cannot re-run it.
+func TestRejectionFailsTheWorkflowNonRetryably(t *testing.T) {
+	env := newEnv(t)
+	env.ExecuteWorkflow(bank.PositionWorkflow, bank.Request{Steps: []string{"SummarizeCrypto"}})
+
+	var appErr *temporal.ApplicationError
+	require.ErrorAs(t, env.GetWorkflowError(), &appErr)
+	assert.Equal(t, "InvalidRequest", appErr.Type())
+	assert.True(t, appErr.NonRetryable())
+}
+
+func TestValidationRejectionIsNotRetried(t *testing.T) {
+	env := newEnv(t)
+
+	attempts := 0
+	env.SetOnActivityStartedListener(func(info *activity.Info, _ context.Context, _ converter.EncodedValues) {
+		if info.ActivityType.Name == "ValidateRequest" {
+			attempts++
+		}
+	})
+
+	env.ExecuteWorkflow(bank.PositionWorkflow, bank.Request{Steps: []string{"SummarizeCrypto"}})
+
+	require.Error(t, env.GetWorkflowError())
+	assert.Contains(t, env.GetWorkflowError().Error(), "request rejected")
+	assert.Equal(t, 1, attempts)
+}
+
+// Rejection happens before any step is scheduled, so a bad request costs only the
+// validation activity.
+func TestInvalidRequestSchedulesNoStep(t *testing.T) {
 	env := newEnv(t)
 
 	env.OnActivity("LookupAnchorAccount", mock.Anything, mock.Anything).

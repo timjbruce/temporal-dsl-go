@@ -204,7 +204,7 @@ warning rather than an error.
 
 ```
 dsl/        the step catalog, the resolver, advisories, and validation — no Temporal dependency
-workflow/   the six activities, the DSL workflow, and the running position
+workflow/   the six step activities, request validation, the DSL workflow, and the running position
 web/        JSON API and the embedded single-page UI
 cmd/        worker and server binaries
 test/       end-to-end, behind the `integration` build tag
@@ -220,6 +220,19 @@ rather than an error.
 The web service and the Workflow validate independently, so a client calling the Workflow directly is
 not exempt from the checks the HTTP layer would have made.
 
+The Workflow's checks run in the `ValidateRequest` activity before any step is scheduled. The activity
+returns the catalog entry for each step plus the inputs the running confidence is counted from, and
+the Workflow works only from that recorded snapshot, never the catalog itself. A replay after the
+catalog changes therefore runs against the catalog the request was validated with. A rejection fails
+the Workflow with a non-retryable `InvalidRequest` error (`request rejected: ...`), so a Workflow retry
+policy will not re-run it. Unlike the steps, `ValidateRequest` is dispatched by function reference,
+not by name.
+
+The Workflow records a `validate-request-activity` version marker (`workflow.GetVersion`, minimum and
+current version both `1`) before it schedules validation. No execution predates the activity, so there
+is no older code path; a history without the marker fails fast. A later change to the command
+sequence raises the maximum and branches on it.
+
 | Check | Web service | Workflow |
 |---|---|---|
 | Step name exists in the catalog | ✓ | ✓ |
@@ -230,8 +243,8 @@ not exempt from the checks the HTTP layer would have made.
 | Supplied values parse as their declared type | ✓ `422` | ✓ fails before scheduling |
 | Unmet *optional* inputs | advisory, never a refusal | runtime advisory, never a refusal |
 
-The Workflow visits data keys in sorted order when it validates them. Iterating the map directly would
-let two equally-malformed inputs report different errors on different replays.
+`ValidateRequest` visits data keys in sorted order, so two equally-malformed inputs always report the
+same error.
 
 **Two gaps neither layer closes.** Both are worth knowing before you extend the catalog:
 

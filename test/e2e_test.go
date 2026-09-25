@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
@@ -390,6 +391,36 @@ func TestEndToEndWorkflowRejectsBadRequestsDirectly(t *testing.T) {
 			err = run.Get(context.Background(), &result)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.want)
+
+			assertVersionMarkedBeforeValidation(t, c, run)
 		})
 	}
+}
+
+// Every execution records the validate-request-activity version marker before
+// it schedules ValidateRequest, so a later change to the command sequence can
+// branch on it.
+func assertVersionMarkedBeforeValidation(t *testing.T, c client.Client, run client.WorkflowRun) {
+	t.Helper()
+
+	marked := false
+	iter := c.GetWorkflowHistory(context.Background(), run.GetID(), run.GetRunID(), false, enums.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+	for iter.HasNext() {
+		event, err := iter.Next()
+		require.NoError(t, err)
+
+		if m := event.GetMarkerRecordedEventAttributes(); m != nil {
+			for _, p := range m.GetDetails()["change-id"].GetPayloads() {
+				if strings.Contains(string(p.GetData()), "validate-request-activity") {
+					marked = true
+				}
+			}
+		}
+		if a := event.GetActivityTaskScheduledEventAttributes(); a != nil {
+			require.Equal(t, "ValidateRequest", a.GetActivityType().GetName())
+			require.True(t, marked, "ValidateRequest was scheduled before the version marker was recorded")
+			return
+		}
+	}
+	t.Fatal("ValidateRequest was never scheduled")
 }

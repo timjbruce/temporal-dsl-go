@@ -1,5 +1,7 @@
 package workflow
 
+import "dsl/dsl"
+
 const (
 	TaskQueueName = "banking-position-dsl"
 	ProgressQuery = "position_progress"
@@ -8,6 +10,14 @@ const (
 type Request struct {
 	Steps []string          `json:"steps"`
 	Data  map[string]string `json:"data"`
+}
+
+// ValidatedRequest is what ValidateRequest hands the Workflow: the catalog entry
+// for each step, in order, and the inputs the running confidence is counted
+// off. The Workflow reads the catalog only through this.
+type ValidatedRequest struct {
+	Steps            []dsl.StepDef `json:"steps"`
+	ConfidenceInputs []string      `json:"confidence_inputs"`
 }
 
 type StepTrace struct {

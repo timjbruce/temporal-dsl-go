@@ -1,10 +1,9 @@
 package workflow
 
 import (
+	"errors"
 	"fmt"
-	"maps"
 	"math"
-	"slices"
 	"strconv"
 	"time"
 
@@ -25,10 +24,6 @@ import (
 func PositionWorkflow(ctx workflow.Context, req Request) (Result, error) {
 	log := workflow.GetLogger(ctx)
 
-	if err := validateRequest(req); err != nil {
-		return Result{Data: map[string]string{}, Trace: []StepTrace{}}, err
-	}
-
 	bag := map[string]string{}
 	for k, v := range req.Data {
 		bag[k] = v
@@ -48,11 +43,25 @@ func PositionWorkflow(ctx workflow.Context, req Request) (Result, error) {
 		return result, fmt.Errorf("could not register %s query: %w", ProgressQuery, err)
 	}
 
+	// Validating in an activity changed the Workflow's first command. No
+	// execution predates it, so it is the minimum as well as the current version:
+	// a history without this marker fails fast here instead of drifting through
+	// replay. Any later change to the command sequence bumps maxSupported.
+	workflow.GetVersion(ctx, validateActivityChange, validateActivityVersion, validateActivityVersion)
+
+	// The query handler is registered first so progress is answerable while the
+	// request is still being validated.
+	var plan ValidatedRequest
+	validateCtx := workflow.WithActivityOptions(ctx, validateOptions)
+	if err := workflow.ExecuteActivity(validateCtx, activities.ValidateRequest, req).Get(validateCtx, &plan); err != nil {
+		return Result{Data: map[string]string{}, Trace: []StepTrace{}}, rejection(err)
+	}
+
 	begun := workflow.Now(ctx)
 	elapsed := func() float64 { return workflow.Now(ctx).Sub(begun).Seconds() }
 
-	for i, name := range req.Steps {
-		def, _ := dsl.Step(name) // validateRequest has already resolved every name
+	for i, def := range plan.Steps {
+		name := def.Name
 
 		inputs := make(map[string]string, len(def.Requires)+len(def.Optional)+1)
 
@@ -126,7 +135,7 @@ func PositionWorkflow(ctx workflow.Context, req Request) (Result, error) {
 		progress.ElapsedSec = elapsed()
 
 		if def.Contributes {
-			applyToPosition(&progress.Position, name, outputs, bag)
+			applyToPosition(&progress.Position, name, outputs, bag, plan.ConfidenceInputs)
 			if progress.FirstResultSec == 0 {
 				progress.FirstResultSec = progress.ElapsedSec
 			}
@@ -149,9 +158,10 @@ func PositionWorkflow(ctx workflow.Context, req Request) (Result, error) {
 }
 
 // applyToPosition folds a step's outputs into the running answer. Confidence is
-// counted off the same inputs BuildPosition itself counts, so the figure served
-// mid-run and the one it finally reports are on one scale.
-func applyToPosition(p *PositionSnapshot, step string, out map[string]string, bag map[string]string) {
+// counted off the same inputs BuildPosition itself counts, taken from the
+// recorded catalog snapshot, so the figure served mid-run and the one it finally
+// reports are on one scale.
+func applyToPosition(p *PositionSnapshot, step string, out map[string]string, bag map[string]string, confidenceInputs []string) {
 	assign := func(key string, target *float64) {
 		if v, ok := parseMoney(out[key]); ok {
 			*target = v
@@ -171,7 +181,7 @@ func applyToPosition(p *PositionSnapshot, step string, out map[string]string, ba
 	if v, ok := parseMoney(out["position_confidence"]); ok {
 		p.Confidence = int(v)
 	} else {
-		p.Confidence = ConfidenceFor(bag)
+		p.Confidence = confidenceOf(confidenceInputs, bag)
 	}
 
 	liabilities := p.CardBalance + p.LoanBalance
@@ -193,35 +203,39 @@ func parseMoney(raw string) (float64, bool) {
 	return v, true
 }
 
-// validateRequest rejects a request the Workflow cannot sensibly execute, before
-// any activity is scheduled. The web service checks all of this too, but the
-// Workflow does not depend on having been called through it.
-//
-// Data keys are visited in sorted order: iterating the map directly would let
-// two equally-bad inputs produce different errors on different replays.
-func validateRequest(req Request) error {
-	if len(req.Steps) == 0 {
-		return fmt.Errorf("no steps provided")
-	}
+// activities is a nil receiver used only to name methods for ExecuteActivity.
+// ValidateRequest is not a step, so it is dispatched by function reference and
+// gets the SDK's compile-time checking that the string-named steps give up. The
+// web service checks all of this too, but the Workflow does not depend on
+// having been called through it.
+var activities *Activities
 
-	seen := make(map[string]bool, len(req.Steps))
-	for i, name := range req.Steps {
-		if _, ok := dsl.Step(name); !ok {
-			return fmt.Errorf("unknown step %q at position %d", name, i+1)
-		}
-		if seen[name] {
-			return fmt.Errorf("duplicate step %q at position %d", name, i+1)
-		}
-		seen[name] = true
-	}
+const (
+	validateActivityChange  = "validate-request-activity"
+	validateActivityVersion = 1
+)
 
-	for _, key := range slices.Sorted(maps.Keys(req.Data)) {
-		if reason := dsl.CheckValue(key, req.Data[key]); reason != "" {
-			return fmt.Errorf("input %q is unusable: %s", key, reason)
-		}
+// rejection fails the Workflow for a request ValidateRequest refused. The refusal
+// is wrapped non-retryable, so a Workflow retry policy added by some caller
+// cannot re-run a request that will be refused the same way every time. Any
+// other failure, such as the activity timing out, stays retryable.
+func rejection(err error) error {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) && appErr.Type() == requestErrorType {
+		return temporal.NewNonRetryableApplicationError("request rejected", requestErrorType, err)
 	}
+	return fmt.Errorf("could not validate request: %w", err)
+}
 
-	return nil
+// Validation is a catalog lookup, so it is quick, and a rejection is
+// non-retryable; the retries only cover a worker lost mid-attempt.
+var validateOptions = workflow.ActivityOptions{
+	StartToCloseTimeout: 10 * time.Second,
+	RetryPolicy: &temporal.RetryPolicy{
+		InitialInterval:    time.Second,
+		BackoffCoefficient: 2,
+		MaximumAttempts:    3,
+	},
 }
 
 // Each step declares how long its system takes, so the timeout tracks the

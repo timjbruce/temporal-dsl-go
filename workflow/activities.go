@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +32,45 @@ const (
 // really does take 20-35s); tests and demos dial it down.
 type Activities struct {
 	SpeedFactor float64
+}
+
+// ValidateRequest rejects a request the Workflow cannot sensibly execute, before
+// any step is scheduled, and returns everything the Workflow needs from the
+// catalog. Running it as an activity puts the verdict and that catalog snapshot
+// into Event History, so a replay after the catalog changes still sees the
+// catalog the run was validated against.
+//
+// Data keys are visited in sorted order, so two equally-bad inputs always report
+// the same error.
+func (a *Activities) ValidateRequest(ctx context.Context, req Request) (ValidatedRequest, error) {
+	if len(req.Steps) == 0 {
+		return ValidatedRequest{}, requestError("no steps provided")
+	}
+
+	defs := make([]dsl.StepDef, 0, len(req.Steps))
+	seen := make(map[string]bool, len(req.Steps))
+	for i, name := range req.Steps {
+		def, ok := dsl.Step(name)
+		if !ok {
+			return ValidatedRequest{}, requestError("unknown step %q at position %d", name, i+1)
+		}
+		if seen[name] {
+			return ValidatedRequest{}, requestError("duplicate step %q at position %d", name, i+1)
+		}
+		seen[name] = true
+		defs = append(defs, def)
+	}
+
+	for _, key := range slices.Sorted(maps.Keys(req.Data)) {
+		if reason := dsl.CheckValue(key, req.Data[key]); reason != "" {
+			return ValidatedRequest{}, requestError("input %q is unusable: %s", key, reason)
+		}
+	}
+
+	// The running confidence is counted off BuildPosition's inputs whether or
+	// not BuildPosition is in the ordering, so they travel separately.
+	build, _ := dsl.Step("BuildPosition")
+	return ValidatedRequest{Steps: defs, ConfidenceInputs: build.Optional}, nil
 }
 
 func (a *Activities) LookupAnchorAccount(ctx context.Context, in map[string]string) (map[string]string, error) {
@@ -205,7 +246,7 @@ func (a *Activities) BuildPosition(ctx context.Context, in map[string]string) (m
 	return map[string]string{
 		"net_position":        money(deposits - liabilities),
 		"coverage_ratio":      strconv.FormatFloat(math.Round(coverage*1000)/1000, 'f', 3, 64),
-		"position_confidence": strconv.Itoa(present * confidenceStep()),
+		"position_confidence": strconv.Itoa(present * confidenceStep(confidenceInputs())),
 	}, nil
 }
 
@@ -306,31 +347,37 @@ func seeded(step, key string) *rand.Rand {
 	return rand.New(rand.NewPCG(sum, sum>>32))
 }
 
-// confidenceStep is what one of BuildPosition's inputs is worth. Deriving it
-// from the catalog keeps the running figure and the final one on one scale by
+// confidenceInputs are the inputs BuildPosition counts. Deriving everything
+// from them keeps the running figure and the final one on one scale by
 // construction rather than by agreement.
-func confidenceStep() int {
-	def, ok := dsl.Step("BuildPosition")
-	if !ok || len(def.Optional) == 0 {
+func confidenceInputs() []string {
+	def, _ := dsl.Step("BuildPosition")
+	return def.Optional
+}
+
+// confidenceStep is what one confidence input is worth.
+func confidenceStep(inputs []string) int {
+	if len(inputs) == 0 {
 		return 0
 	}
-	return 100 / len(def.Optional)
+	return 100 / len(inputs)
 }
 
 // ConfidenceFor counts the inputs BuildPosition would have, given a data bag.
 func ConfidenceFor(bag map[string]string) int {
-	def, ok := dsl.Step("BuildPosition")
-	if !ok {
-		return 0
-	}
+	return confidenceOf(confidenceInputs(), bag)
+}
 
+// confidenceOf is ConfidenceFor against a given set of inputs. The Workflow
+// passes the set ValidateRequest recorded rather than reading the catalog.
+func confidenceOf(inputs []string, bag map[string]string) int {
 	n := 0
-	for _, key := range def.Optional {
+	for _, key := range inputs {
 		if strings.TrimSpace(bag[key]) != "" {
 			n++
 		}
 	}
-	return n * confidenceStep()
+	return n * confidenceStep(inputs)
 }
 
 // customerFromAccount is the one derivation of a customer from an account
@@ -357,6 +404,15 @@ func customerFor(in map[string]string) (string, error) {
 func inputError(format string, args ...any) error {
 	return temporal.NewNonRetryableApplicationError(
 		fmt.Sprintf(format, args...), "InvalidInput", nil)
+}
+
+const requestErrorType = "InvalidRequest"
+
+// requestError marks a malformed request non-retryable: the same request will
+// fail the same way on every attempt.
+func requestError(format string, args ...any) error {
+	return temporal.NewNonRetryableApplicationError(
+		fmt.Sprintf(format, args...), requestErrorType, nil)
 }
 
 func str(in map[string]string, key string) (string, error) {
