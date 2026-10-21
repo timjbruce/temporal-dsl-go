@@ -5,13 +5,22 @@ import (
 	"net/http"
 	"os"
 
+	"dsl/internal/temporalclient"
 	"dsl/web"
 
 	"go.temporal.io/sdk/client"
 )
 
 func main() {
-	c, err := client.Dial(client.Options{HostPort: hostPort()})
+	opts, profile, err := temporalclient.Options()
+	if err != nil {
+		log.Fatalln("unable to load Temporal client config:", err)
+	}
+	if profile == "" {
+		profile = "none"
+	}
+	log.Printf("connecting to Temporal (profile %s)", profile)
+	c, err := client.Dial(opts)
 	if err != nil {
 		log.Fatalln("unable to reach Temporal:", err)
 	}
@@ -26,11 +35,4 @@ func main() {
 	if err := http.ListenAndServe(addr, web.NewServer(c).Routes()); err != nil {
 		log.Fatalln("server stopped:", err)
 	}
-}
-
-func hostPort() string {
-	if v := os.Getenv("TEMPORAL_ADDRESS"); v != "" {
-		return v
-	}
-	return client.DefaultHostPort
 }

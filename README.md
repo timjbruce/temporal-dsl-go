@@ -146,6 +146,33 @@ Open <http://localhost:8080>: tick steps, reorder with the arrows, press **Get r
 that will run degraded at their current position get a ▲ marker and an advisory explaining what they
 will miss. Press **Set as A**, reorder, then **Compare with A** to see both results side by side.
 
+### Pointing at a different Temporal server
+
+The worker and the web server both get their connection from `internal/temporalclient`, which reads
+`temporal.toml` (`~/Library/Application Support/temporalio/temporal.toml` on macOS,
+`~/.config/temporalio/temporal.toml` on Linux) through the SDK's
+[`envconfig`](https://pkg.go.dev/go.temporal.io/sdk/contrib/envconfig) package, the same file the
+`temporal` CLI reads. This project uses the `dsl` profile:
+
+```toml
+[profile.dsl]
+address = "my-ns.a1b2c.tmprl.cloud:7233"
+namespace = "my-ns.a1b2c"
+api_key = "..."
+```
+
+Which profile applies:
+
+1. `TEMPORAL_PROFILE`, if set. It must exist in the file.
+2. Otherwise `[profile.dsl]`, if present.
+3. Otherwise no profile, so `localhost:7233`, namespace `default`. `[profile.default]` is deliberately
+   not used, so this project never lands in your personal namespace by accident.
+
+`TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_API_KEY`, and the `TEMPORAL_TLS_*` variables
+override single values from whichever profile applies. Both processes log the profile they used at
+startup. To aim CLI commands at the same server, pass `--profile dsl`. `make test-integration` ignores
+all of this and starts its own throwaway dev server.
+
 A full run is a minute or more of real waiting. To watch it move faster:
 
 ```bash

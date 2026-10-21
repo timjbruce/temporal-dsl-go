@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 
+	"dsl/internal/temporalclient"
 	bank "dsl/workflow"
 
 	"go.temporal.io/sdk/client"
@@ -12,7 +13,15 @@ import (
 )
 
 func main() {
-	c, err := client.Dial(client.Options{HostPort: hostPort()})
+	opts, profile, err := temporalclient.Options()
+	if err != nil {
+		log.Fatalln("unable to load Temporal client config:", err)
+	}
+	if profile == "" {
+		profile = "none"
+	}
+	log.Printf("connecting to Temporal (profile %s)", profile)
+	c, err := client.Dial(opts)
 	if err != nil {
 		log.Fatalln("unable to reach Temporal:", err)
 	}
@@ -39,11 +48,4 @@ func speedFactor() float64 {
 		return 1
 	}
 	return v
-}
-
-func hostPort() string {
-	if v := os.Getenv("TEMPORAL_ADDRESS"); v != "" {
-		return v
-	}
-	return client.DefaultHostPort
 }
