@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Position DSL on Temporal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a 16:9 ledger-paper stage, one slide at a time on wide screens, stacked on phones. */
+:root {
+  --bg: #e9edf1;
+  --paper: #fbfcfd;
+  --ink: #14202e;
+  --muted: #5a6878;
+  --rule: #d4dbe3;
+  --accent: #0d6e6a;
+  --accent-soft: #dcefed;
+  --warn: #9a5b00;
+  --warn-soft: #fbefd9;
+  --bad: #b3261e;
+  --bad-soft: #f9e1df;
+  --code-bg: #eef2f5;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1218; --paper: #141c25; --ink: #e5ebf1; --muted: #93a2b2; --rule: #2a3643;
+    --accent: #4fc2bb; --accent-soft: #15322f; --warn: #e8a948; --warn-soft: #33270f;
+    --bad: #f0857d; --bad-soft: #3a1a18; --code-bg: #1b2530; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1218; --paper: #141c25; --ink: #e5ebf1; --muted: #93a2b2; --rule: #2a3643;
+  --accent: #4fc2bb; --accent-soft: #15322f; --warn: #e8a948; --warn-soft: #33270f;
+  --bad: #f0857d; --bad-soft: #3a1a18; --code-bg: #1b2530; color-scheme: dark;
+}
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 28px;
+}
+.deck { max-width: 1280px; margin: 0 auto; container-type: inline-size; display: grid; gap: 20px; }
+.slide {
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 6px;
+  font-size: clamp(13px, 1.22cqw, 18px); line-height: 1.4;
+  padding: 2.4em 2.8em; display: flex; flex-direction: column; gap: 1.3em;
+  min-width: 0;
+}
+@media (min-width: 820px) {
+  .slide { aspect-ratio: 16 / 9; overflow: hidden; }
+  .deck.paged .slide:not(.on) { display: none; }
+}
+.eyebrow {
+  font-family: var(--mono); font-size: .78em; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--accent); display: flex; justify-content: space-between; gap: 1em;
+}
+.eyebrow span:last-child { color: var(--muted); }
+h1 {
+  font-family: var(--display); font-stretch: 82%; font-weight: 750; font-size: 2.5em;
+  line-height: 1.02; margin: 0; text-wrap: balance; letter-spacing: -.01em;
+}
+.lede { margin: -.5em 0 0; color: var(--muted); max-width: 62ch; font-size: 1.05em; }
+code, .mono { font-family: var(--mono); font-size: .86em; }
+p code, li code, td code { background: var(--code-bg); padding: .05em .3em; border-radius: 3px; }
+h3 {
+  font-family: var(--display); font-stretch: 90%; font-weight: 650; font-size: 1.05em;
+  margin: 0 0 .5em; letter-spacing: .01em;
+}
+.label { font-family: var(--mono); font-size: .72em; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.cols { display: grid; gap: 1.6em; flex: 1; min-height: 0; }
+.cols > * { min-width: 0; }
+@media (min-width: 820px) {
+  .c3 { grid-template-columns: 1fr 1.05fr 1.15fr; }
+  .c2 { grid-template-columns: 1.15fr 1fr; }
+}
+pre {
+  margin: 0; background: var(--code-bg); border-radius: 4px; padding: .9em 1em;
+  font-family: var(--mono); font-size: .8em; line-height: 1.5; overflow-x: auto; white-space: pre;
+}
+.k { color: var(--accent); }
+.s { color: var(--warn); }
+.c { color: var(--muted); }
+ul.plain { list-style: none; padding: 0; margin: 0; display: grid; gap: .55em; }
+
+table { border-collapse: collapse; width: 100%; font-size: .84em; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: .38em .5em; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--mono); font-weight: 600; font-size: .82em; color: var(--muted); letter-spacing: .03em; }
+.tablewrap { overflow-x: auto; }
+.note {
+  font-size: .88em; color: var(--muted); border-top: 1px solid var(--rule); padding-top: .7em; margin: 0;
+}
+.note b { color: var(--ink); font-weight: 600; }
+.node code, ul.plain code { white-space: nowrap; }
+
+/* Slide 1: topology */
+.topo { display: grid; gap: .8em; align-items: stretch; }
+@media (min-width: 820px) { .topo { grid-template-columns: 1fr auto 1.1fr auto 1fr; } }
+.node { border: 1px solid var(--rule); border-radius: 5px; padding: .9em 1em; display: grid; gap: .45em; align-content: start; }
+.node.svc { border-color: var(--accent); background: var(--accent-soft); }
+.node p { margin: 0; font-size: .88em; }
+.node ul { margin: 0; padding-left: 1.1em; font-size: .86em; display: grid; gap: .25em; }
+.wire { display: grid; align-content: center; gap: .4em; text-align: center; color: var(--muted); font-family: var(--mono); font-size: .7em; }
+.wire b { color: var(--accent); font-size: 1.4em; }
+.keys { display: grid; gap: 1.2em; }
+@media (min-width: 820px) { .keys { grid-template-columns: repeat(3, 1fr); } }
+.keys div { border-top: 2px solid var(--accent); padding-top: .5em; }
+.keys p { margin: .2em 0 0; font-size: .88em; color: var(--muted); }
+
+/* Slide 3: history timeline */
+.hist { list-style: none; margin: 0; padding: 0; display: grid; gap: .28em; font-family: var(--mono); font-size: .74em; }
+.hist li { display: grid; grid-template-columns: 2em 1fr; gap: .6em; padding: .35em .6em; border-radius: 3px; background: var(--code-bg); }
+.hist .id { color: var(--muted); text-align: right; }
+.hist .ev { font-weight: 600; }
+.hist .pl { color: var(--muted); }
+.hist li.mk { background: var(--warn-soft); }
+.hist li.mk .ev { color: var(--warn); }
+.hist li.act .ev { color: var(--accent); }
+.hist li.gap { background: none; color: var(--muted); padding-block: 0; }
+
+/* rules */
+.rules { display: grid; gap: .7em; align-content: start; }
+.rule { border-left: 3px solid var(--accent); padding: .1em 0 .1em .8em; display: grid; gap: .25em; }
+.rule.bad { border-left-color: var(--bad); }
+.rule p { margin: 0; font-size: .88em; }
+.rule h3 { margin: 0; }
+.side { display: grid; gap: 1em; align-content: start; }
+td.y { color: var(--accent); font-weight: 600; }
+td.r { color: var(--bad); font-weight: 600; }
+td.a { color: var(--warn); font-weight: 600; }
+ul.plain li { font-size: .9em; }
+ul.plain b { font-weight: 600; }
+
+/* nav */
+.nav {
+  display: flex; justify-content: center; align-items: center; gap: 1em;
+  font-family: var(--mono); font-size: 13px; color: var(--muted);
+}
+.nav button {
+  font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule);
+  border-radius: 4px; padding: .45em .9em; cursor: pointer;
+}
+.nav button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.nav button:disabled { opacity: .4; cursor: default; }
+@media (max-width: 819px) { .nav { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="deck paged" id="deck">
+
+  <!-- 1 -->
+  <section class="slide on" id="s1" aria-label="Slide 1">
+    <div class="eyebrow"><span>Position DSL · Temporal Go SDK</span><span>1 / 5</span></div>
+    <h1>One Workflow type runs whatever pipeline the caller sends</h1>
+    <p class="lede">The request is a list of step names plus a data bag. <code>PositionWorkflow</code> turns each name into an Activity, so Temporal records, retries, and replays every step, whatever order it arrives in.</p>
+
+    <div class="topo">
+      <div class="node">
+        <div class="label">Client · cmd/server</div>
+        <ul>
+          <li><code>ExecuteWorkflow</code> with ID <code>position-&lt;unixnano&gt;</code></li>
+          <li><code>run.Get</code> when <code>?wait=true</code></li>
+          <li><code>QueryWorkflow</code> for live progress</li>
+          <li><code>/api/compare</code> starts two executions</li>
+        </ul>
+      </div>
+      <div class="wire"><b>→</b>start · query</div>
+      <div class="node svc">
+        <div class="label">Temporal Service</div>
+        <p>Task queue <code>banking-position-dsl</code></p>
+        <p>Event History per execution: the request, a version marker, and every Activity's inputs and result.</p>
+        <p class="label" style="margin-top:.2em">dev server, or Cloud via <code>[profile.dsl]</code></p>
+      </div>
+      <div class="wire"><b>⇄</b>poll · complete</div>
+      <div class="node">
+        <div class="label">Worker · cmd/worker</div>
+        <ul>
+          <li><code>RegisterWorkflow(PositionWorkflow)</code></li>
+          <li><code>RegisterActivity(&amp;Activities{})</code> registers 7 Activity types: <code>ValidateRequest</code> plus the 6 steps</li>
+          <li>Method name = Activity type name</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="keys">
+      <div><h3>Dynamic dispatch</h3><p>Steps are scheduled by string name. The step list is data, so no new Workflow code is needed for a new ordering.</p></div>
+      <div><h3>Replay-safe</h3><p>The catalog reaches the Workflow only through an Activity result, so a catalog change cannot change the replay of a run already in flight.</p></div>
+      <div><h3>Typed failures</h3><p>Each step has its own timeout and retry policy. Bad input is non-retryable, so the run fails after one attempt.</p></div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="slide" id="s2" aria-label="Slide 2">
+    <div class="eyebrow"><span>Dispatch</span><span>2 / 5</span></div>
+    <h1>Steps are Activity types named at run time</h1>
+    <p class="lede"><code>ExecuteActivity</code> accepts a function reference or a string. This Workflow uses both, and the difference determines what the SDK can check before a step runs.</p>
+
+    <div class="cols c2">
+      <div style="display:grid; gap:.8em; align-content:start">
+        <div class="label">workflow/workflow.go</div>
+<pre><span class="c">// Validation is fixed: by reference, so the SDK</span>
+<span class="c">// checks the name and argument types.</span>
+workflow.<span class="k">ExecuteActivity</span>(validateCtx,
+    activities.ValidateRequest, req)
+
+<span class="c">// Steps come from the request: by string name.</span>
+<span class="k">for</span> i, def := <span class="k">range</span> plan.Steps {
+    name := def.Name
+    stepCtx := workflow.WithActivityOptions(ctx,
+        activityOptions(def))
+    workflow.<span class="k">ExecuteActivity</span>(stepCtx, name, inputs).
+        Get(stepCtx, &amp;outputs)
+    <span class="k">for</span> k, v := <span class="k">range</span> outputs { bag[k] = v }
+}</pre>
+        <p class="note">Every step has the same signature, <code>func(ctx, map[string]string) (map[string]string, error)</code>, so one call site can dispatch any of them. The shared data bag carries each step's outputs to the steps after it.</p>
+      </div>
+
+      <div class="side">
+        <div class="tablewrap">
+        <table>
+          <thead><tr><th></th><th>By reference</th><th>By string</th></tr></thead>
+          <tbody>
+            <tr><td>Name checked</td><td class="y">when scheduled</td><td class="a">at the worker</td></tr>
+            <tr><td>Argument types checked</td><td class="y">when scheduled</td><td class="a">on decode</td></tr>
+            <tr><td>Caller picks the step</td><td>no</td><td class="y">yes</td></tr>
+            <tr><td>Test override</td><td><code>OnActivity(fn, …)</code></td><td><code>OnActivity("Name", …)</code></td></tr>
+          </tbody>
+        </table>
+        </div>
+        <div class="rule bad">
+          <h3>An unregistered name fails late</h3>
+          <p>If a step is added to <code>catalog.go</code> without a matching method, the worker can't find the Activity type. The failure is retryable, so the step uses all three attempts before the Workflow fails.</p>
+        </div>
+        <div class="rule bad">
+          <h3>Outputs aren't checked</h3>
+          <p>Whatever map an Activity returns is merged into the bag. A renamed key doesn't cause an error. Later steps just run degraded.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="slide" id="s3" aria-label="Slide 3">
+    <div class="eyebrow"><span>Determinism &amp; replay</span><span>3 / 5</span></div>
+    <h1>Everything the Workflow decides on is in Event History</h1>
+    <p class="lede">The data bag, the trace, and the running position are never stored. On replay the Workflow rebuilds them from recorded Activity results, so any worker can pick up a run after a crash.</p>
+
+    <div class="cols c2">
+      <div style="display:grid; gap:.6em; align-content:start">
+        <div class="label">Event History for the canonical ordering (abridged)</div>
+        <ol class="hist">
+          <li><span class="id">1</span><span><span class="ev">WorkflowExecutionStarted</span> <span class="pl">Request{steps, data}</span></span></li>
+          <li class="mk"><span class="id">·</span><span><span class="ev">MarkerRecorded</span> <span class="pl">version "validate-request-activity" = 1</span></span></li>
+          <li class="act"><span class="id">·</span><span><span class="ev">ActivityTaskScheduled</span> <span class="pl">ValidateRequest</span></span></li>
+          <li class="act"><span class="id">·</span><span><span class="ev">ActivityTaskCompleted</span> <span class="pl">ValidatedRequest{StepDef ×6}</span></span></li>
+          <li class="act"><span class="id">·</span><span><span class="ev">ActivityTaskScheduled</span> <span class="pl">"LookupAnchorAccount"</span></span></li>
+          <li class="act"><span class="id">·</span><span><span class="ev">ActivityTaskCompleted</span> <span class="pl">{customer_id, anchor_type, …}</span></span></li>
+          <li class="gap"><span class="id"></span><span>… one scheduled / started / completed group per step …</span></li>
+          <li><span class="id">·</span><span><span class="ev">WorkflowExecutionCompleted</span> <span class="pl">Result{data, trace, progress}</span></span></li>
+        </ol>
+        <p class="note">Workflow Task and <code>ActivityTaskStarted</code> events are omitted.</p>
+      </div>
+
+      <div class="rules">
+        <div class="rule">
+          <h3>The catalog arrives as an Activity result</h3>
+          <p><code>ValidateRequest</code> returns a <code>StepDef</code> snapshot: timeouts, requirements, and confidence inputs. The Workflow reads only that snapshot and never calls into the <code>dsl</code> package, so replay uses the catalog the run was validated against.</p>
+        </div>
+        <div class="rule">
+          <h3>A version marker on the first command</h3>
+          <p><code>GetVersion("validate-request-activity", 1, 1)</code>. No execution predates the activity, so min = max = 1, and a history without the marker fails fast instead of drifting. The next change to the command sequence raises the maximum.</p>
+        </div>
+        <div class="rule">
+          <h3>Workflow time, not wall time</h3>
+          <p>Elapsed times use <code>workflow.Now</code>. Map iteration appears only where order can't affect a command (copying keys into the bag).</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="slide" id="s4" aria-label="Slide 4">
+    <div class="eyebrow"><span>Failure handling</span><span>4 / 5</span></div>
+    <h1>Failures are typed, so Temporal knows what's worth retrying</h1>
+    <p class="lede">Each step gets Activity options from its own catalog entry. Errors that will recur on every attempt are marked non-retryable, so Temporal fails them on the first attempt.</p>
+
+    <div class="cols c2">
+      <div class="tablewrap">
+      <table>
+        <thead><tr><th>Failure</th><th>Raised by</th><th>Temporal's response</th></tr></thead>
+        <tbody>
+          <tr><td>Step outlasts its system</td><td>Server: <code>StartToCloseTimeout</code></td><td class="a">retry: 3 attempts, 1s × 2, max 1m</td></tr>
+          <tr><td>Worker lost mid-step</td><td>Server: same timeout</td><td class="a">retry, but only after the full window</td></tr>
+          <tr><td>Unknown step name</td><td>Worker: no such Activity type</td><td class="a">retry, then the Workflow fails</td></tr>
+          <tr><td>Missing or starved input</td><td>Activity: <code>InvalidInput</code></td><td class="r">non-retryable, one attempt</td></tr>
+          <tr><td>Malformed request</td><td><code>ValidateRequest</code>: <code>InvalidRequest</code></td><td class="r">non-retryable, nothing else scheduled</td></tr>
+          <tr><td>Required key not in bag</td><td>Workflow code, before scheduling</td><td class="r">Workflow fails and names the step</td></tr>
+        </tbody>
+      </table>
+      </div>
+
+      <div class="side">
+<pre><span class="k">func</span> activityOptions(def dsl.StepDef) workflow.ActivityOptions {
+  <span class="k">return</span> workflow.ActivityOptions{
+    StartToCloseTimeout: <span class="c">// declared max + 30s</span>
+      time.Duration(def.MaxSeconds)*time.Second +
+      30*time.Second,
+    RetryPolicy: &amp;temporal.RetryPolicy{
+      InitialInterval: time.Second, BackoffCoefficient: 2,
+      MaximumInterval: time.Minute, MaximumAttempts: 3,
+    },
+  }
+}</pre>
+        <div class="rule">
+          <h3>Rejections stay rejected</h3>
+          <p><code>rejection()</code> re-wraps an <code>InvalidRequest</code> as a non-retryable Workflow error, so a Workflow retry policy added by a caller won't re-run a request that will fail the same way. A validation timeout is still retryable.</p>
+        </div>
+        <div class="rule bad">
+          <h3>No heartbeats</h3>
+          <p>Steps take 20–45s, but there's no <code>HeartbeatTimeout</code>. A dead worker is detected only when <code>StartToClose</code> expires, and a cancellation never reaches a running step.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="slide" id="s5" aria-label="Slide 5">
+    <div class="eyebrow"><span>Visibility &amp; testing</span><span>5 / 5</span></div>
+    <h1>Watch the answer build with a Query</h1>
+    <p class="lede">A full run takes about a minute. A Query handler shows the running position, confidence, and advisories after each step, without the Workflow sending anything out.</p>
+
+    <div class="cols c2">
+      <div style="display:grid; gap:.8em; align-content:start">
+<pre><span class="c">// Registered before the version marker, so progress</span>
+<span class="c">// is answerable while validation is still running.</span>
+workflow.<span class="k">SetQueryHandler</span>(ctx, <span class="s">"position_progress"</span>,
+    <span class="k">func</span>() (Progress, <span class="k">error</span>) { <span class="k">return</span> progress, <span class="k">nil</span> })</pre>
+        <ul class="plain">
+          <li><b>Read-only.</b> A Query adds no events to history, so <code>/api/status</code> can be polled freely.</li>
+          <li><b>Served by a worker.</b> The state is in memory, so a worker must be polling. With none running, <code>/api/status</code> returns <code>502</code>.</li>
+          <li><b>Survives a crash.</b> A worker without the run in cache replays history to rebuild <code>progress</code> before it answers.</li>
+          <li><b>Works after completion</b> for as long as the namespace retains the run.</li>
+        </ul>
+      </div>
+
+      <div class="side">
+        <div class="label">Three levels of test</div>
+        <div class="tablewrap">
+        <table>
+          <thead><tr><th>Level</th><th>Temporal piece</th></tr></thead>
+          <tbody>
+            <tr><td>Activities</td><td><code>TestActivityEnvironment</code></td></tr>
+            <tr><td>Workflow</td><td><code>WorkflowTestSuite</code> with the real activities. <code>OnActivity("SummarizeDeposits", …)</code> by string pins exact figures.</td></tr>
+            <tr><td>End to end</td><td><code>testsuite.StartDevServer</code> with a real worker on the task queue</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p class="note"><b>Connection:</b> the worker and the server both load <code>temporal.toml</code> through <code>envconfig</code>. They use <code>[profile.dsl]</code> if it exists and <code>localhost:7233</code> otherwise, never <code>[profile.default]</code>.</p>
+        <p class="note"><b>Demo speed:</b> <code>SIM_SPEED=0.05</code> shortens the simulated latencies. Above about 1.8, a step outlasts its <code>StartToCloseTimeout</code>.</p>
+      </div>
+    </div>
+  </section>
+
+  <nav class="nav" aria-label="Slides">
+    <button type="button" id="prev">← Prev</button>
+    <span id="count">1 / 5</span>
+    <button type="button" id="next">Next →</button>
+  </nav>
+</div>
+
+<script>
+(function () {
+  const slides = [...document.querySelectorAll('.slide')];
+  const prev = document.getElementById('prev');
+  const next = document.getElementById('next');
+  const count = document.getElementById('count');
+  let i = Math.max(0, slides.findIndex(s => '#' + s.id === location.hash));
+  function show(n) {
+    i = Math.min(slides.length - 1, Math.max(0, n));
+    slides.forEach((s, k) => s.classList.toggle('on', k === i));
+    count.textContent = (i + 1) + ' / ' + slides.length;
+    prev.disabled = i === 0;
+    next.disabled = i === slides.length - 1;
+  }
+  prev.addEventListener('click', () => show(i - 1));
+  next.addEventListener('click', () => show(i + 1));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); show(i + 1); }
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(i - 1); }
+  });
+  show(i);
+})();
+</script>
+</body>
+</html>
